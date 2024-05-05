@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -16,6 +19,22 @@ func main() {
 	if err != nil {
 		fmt.Errorf("error: %v", err)
 		return
+	}
+
+	qpChannel, err := connectionDial.Channel()
+	if err != nil {
+		fmt.Errorf("error creating channel: %v", err)
+	}
+	err = pubsub.PublishJSON(
+		qpChannel,
+		routing.ExchangePerilDirect,
+		routing.PauseKey,
+		routing.PlayingState{
+			IsPaused: true,
+		},
+	)
+	if err != nil {
+		log.Printf("could not publish time: %v", err)
 	}
 	defer connectionDial.Close()
 	fmt.Println("Connection to the RabbitMQ server successful.")
