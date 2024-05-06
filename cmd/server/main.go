@@ -29,6 +29,17 @@ func main() {
 	defer connectionDial.Close()
 	fmt.Println("Connection to the RabbitMQ server successful.")
 
+	_, queue, err := pubsub.DeclareAndBind(
+		connectionDial,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.SimpleQueueDurable,
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to pause: %v", err)
+	}
+	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
 	fmt.Println("Starting Peril server...")
 	gamelogic.PrintServerHelp()
 	for {
