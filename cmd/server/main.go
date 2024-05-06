@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -13,44 +11,44 @@ import (
 )
 
 func main() {
+	const rabbitConnString = "amqp://guest:guest@localhost:5672/"
 
-	connectionString := "amqp://guest:guest@localhost:5672/"
-	connectionDial, err := amqp.Dial(connectionString)
+	conn, err := amqp.Dial(rabbitConnString)
 	if err != nil {
-		log.Printf("error: %v", err)
-		return
+		log.Fatalf("could not connect to RabbitMQ: %v", err)
+	}
+	defer conn.Close()
+	fmt.Println("Peril game server connected to RabbitMQ!")
+
+	publishCh, err := conn.Channel()
+	if err != nil {
+		log.Fatalf("could not create channel: %v", err)
 	}
 
-	qpChannel, err := connectionDial.Channel()
-	if err != nil {
-		log.Printf("error creating channel: %v", err)
-	}
-
-	defer connectionDial.Close()
-	fmt.Println("Connection to the RabbitMQ server successful.")
-
-	_, queue, err := pubsub.DeclareAndBind(
-		connectionDial,
+	err = pubsub.SubscribeGob(
+		conn,
 		routing.ExchangePerilTopic,
 		routing.GameLogSlug,
 		routing.GameLogSlug+".*",
 		pubsub.SimpleQueueDurable,
+		handlerLogs(),
 	)
 	if err != nil {
-		log.Fatalf("could not subscribe to pause: %v", err)
+		log.Fatalf("could not starting consuming logs: %v", err)
 	}
-	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
-	fmt.Println("Starting Peril server...")
+
 	gamelogic.PrintServerHelp()
+
 	for {
-		input := gamelogic.GetInput()
-		if input == nil {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
 			continue
 		}
-		if input[0] == "pause" {
-			fmt.Println("sending a pause message..")
+		switch words[0] {
+		case "pause":
+			fmt.Println("Publishing paused game state")
 			err = pubsub.PublishJSON(
-				qpChannel,
+				publishCh,
 				routing.ExchangePerilDirect,
 				routing.PauseKey,
 				routing.PlayingState{
@@ -59,13 +57,11 @@ func main() {
 			)
 			if err != nil {
 				log.Printf("could not publish time: %v", err)
-				return
 			}
-		}
-		if input[0] == "resume" {
-			fmt.Println("sending a resume message..")
+		case "resume":
+			fmt.Println("Publishing resumes game state")
 			err = pubsub.PublishJSON(
-				qpChannel,
+				publishCh,
 				routing.ExchangePerilDirect,
 				routing.PauseKey,
 				routing.PlayingState{
@@ -74,16 +70,12 @@ func main() {
 			)
 			if err != nil {
 				log.Printf("could not publish time: %v", err)
-				return
 			}
+		case "quit":
+			log.Println("goodbye")
+			return
+		default:
+			fmt.Println("unknown command")
 		}
-		if input[0] == "quit" {
-			fmt.Println("Exiting..")
-			break
-		}
-		fmt.Println("command not understood")
 	}
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
 }
